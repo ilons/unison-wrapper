@@ -1,0 +1,6 @@
+# This is the shared configuration file used for all targets
+# The contents of this file will be concatenated on top of the final target config
+confirmbigdel = false
+
+root = /Users/ilon/code/TT/unison_wrapper/local_root
+root = /Users/ilon/code/TT/unison_wrapper/target_root
