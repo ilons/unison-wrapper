@@ -1,1 +1,5 @@
-# Target configuration file for Bibliotek
+
+# Settings for Library
+
+root = /Users/{USER}/Desktop/e.tmp
+root = /Users/{USER}/Desktop/f.tmp

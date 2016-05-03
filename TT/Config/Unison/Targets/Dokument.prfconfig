@@ -1,1 +1,7 @@
-# Target configuration file for Dokument
+
+# Settings for Documents
+
+root = /Users/{USER}/Desktop/a.tmp
+root = /Users/{USER}/Desktop/b.tmp
+
+ignore = Name .parallels-vm-directory

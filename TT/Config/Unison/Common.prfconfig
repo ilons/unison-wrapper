@@ -1,6 +1,21 @@
-# This is the shared configuration file used for all targets
-# The contents of this file will be concatenated on top of the final target config
-confirmbigdel = false
+# Common settings to all targets
 
-root = /Users/ilon/code/TT/unison_wrapper/local_root
-root = /Users/ilon/code/TT/unison_wrapper/target_root
+logfile = /Users/{USER}/Library/Logs/unison.log
+
+confirmbigdel = true
+contactquietly = true
+fastcheck = true
+rsrc = false
+times = true
+
+ignore = Name .FBCIndex
+ignore = Name .FBCLockFolder
+
+ignore = Name ._*
+ignore = Name *.textClipping
+
+ignore = Name *.idlk
+ignore = Name *.lock
+
+ignore = Name {.Trash*,.VolumeIcon.icns,.HSicon,Temporary*,.Temporary*,TheFindByContentFolder,.Spotlight*,.fsevtentsd,.apdisk}
+ignore = Name {TheVolumeSettingsFolder,.Metadata,.filler,.idsff,.Spotlight,.DS_Store,.CFUserTextEncoding,Autosave,.localized}

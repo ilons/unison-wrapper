@@ -121,8 +121,10 @@ def create_user_config(username, target):
     with open(config_path, 'w') as user_config:
         for file_path in [shared_template_path, target_template_path]:
             with open(file_path, 'r') as template_config:
-                for template_line in template_config:
-                    user_config.write(template_line.format(USER=username))
+                for config_line in template_config:
+                    if '{USER}' in config_line:
+                        config_line = config_line.format(USER=username)
+                    user_config.write(config_line)
 
     return config_path
 
