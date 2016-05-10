@@ -90,6 +90,7 @@ def get_current_user_stat():
     try:
         # Try to use PyObjC's SystemConfiguration module if available
         # This module are able to get us the proper console user, even when running as a hook
+        # noinspection PyUnresolvedReferences
         import SystemConfiguration
         user_stat = SystemConfiguration.SCDynamicStoreCopyConsoleUser(None, None, None) or (None, None, None)
     except ImportError:
@@ -174,6 +175,7 @@ def create_user_config(username, target):
                     user_config.write(config_line)
 
     return config_path
+
 
 def main():
     user_name, user_id, user_gid = get_current_user_stat()
