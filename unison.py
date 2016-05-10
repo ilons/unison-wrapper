@@ -17,6 +17,10 @@ class UnisonSyncException(UnisonException):
     pass
 
 
+class DataCollectionException(Exception):
+    pass
+
+
 class ConfigurationException(Exception):
     pass
 
@@ -83,8 +87,21 @@ PROHIBITED_SYNC_USERS = [
 
 
 def get_current_user_stat():
-    user_stat = os.lstat("/dev/console")
-    return user_stat.st_uid, pwd.getpwuid(user_stat.st_uid).pw_name
+    try:
+        # Try to use PyObjC's SystemConfiguration module if available
+        # This module are able to get us the proper console user, even when running as a hook
+        import SystemConfiguration
+        user_stat = SystemConfiguration.SCDynamicStoreCopyConsoleUser(None, None, None) or (None, None, None)
+    except ImportError:
+        lstat = os.lstat("/dev/console")
+        user_stat = (unicode(pwd.getpwuid(lstat.st_uid).pw_name), lstat.st_uid, lstat.st_gid)
+
+    if user_stat[0] in ['', 'loginwindow', None, u'']:
+        raise DataCollectionException('Could not get currently running user, got: {name} ({uid})'.format(
+            name=user_stat[0],
+            uid=user_stat[1],
+        ))
+    return user_stat
 
 
 def unison_sync(user, target):
@@ -159,7 +176,7 @@ def create_user_config(username, target):
     return config_path
 
 def main():
-    user_id, user_name = get_current_user_stat()
+    user_name, user_id, user_gid = get_current_user_stat()
 
     if not valid_sync_user(uid=user_id, name=user_name):
         print('Sync should not run for user: {user} ({id})'.format(user=user_name, id=user_id))
