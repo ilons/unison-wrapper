@@ -1,27 +1,72 @@
 #!/usr/bin/python
 # coding=utf-8
 import sys
-
+import shutil
 import os
 import pwd
 import subprocess
 
 
-class UnisonException(Exception):
-    def __init__(self, message, exit_code, *args):
-        super(UnisonException, self).__init__(message, *args)
-        self.exit_code = exit_code
+# Exit codes:
+# 0:     Script executed with no errors
+# 1:     Unison: Some files were skipped, but all file transfers were successful.
+# 2:     Unison: Non-fatal failures occurred during file transfer.
+# 3:     Unison: A fatal error occurred, or the execution was interrupted.
+# 11:    Could not determine console user
+# 12:    User not allowed to run sync
+# 13:    Sync target path does not exist
+# 14:    Invalid Unison target config
+# 15:    Could not find configuration file
+# 16:    Insufficient permissions to modify file
+# 99:    Unknown script error
+
+
+class WrapperException(Exception):
+    exit_code = 99
+
+    def __init__(self, message, exit_code=None, *args):
+        super(WrapperException, self).__init__(message, *args)
+        if exit_code:
+            self.exit_code = exit_code
+        elif isinstance(self, UnknownRunningUserException):
+            self.exit_code = 11
+        elif isinstance(self, UserSyncNotAllowedException):
+            self.exit_code = 12
+        elif isinstance(self, MissingSyncTargetException):
+            self.exit_code = 13
+        elif isinstance(self, ConfigurationException):
+            self.exit_code = 14
+        elif isinstance(self, ConfigurationNotFoundException):
+            self.exit_code = 15
+        elif isinstance(self, InsufficientFilePermissions):
+            self.exit_code = 16
+
+
+class UnisonException(WrapperException):
+    pass
 
 
 class UnisonSyncException(UnisonException):
     pass
 
 
-class DataCollectionException(Exception):
+class UnknownRunningUserException(WrapperException):
     pass
 
 
-class ConfigurationException(Exception):
+class UserSyncNotAllowedException(WrapperException):
+    pass
+
+
+class MissingSyncTargetException(WrapperException):
+    pass
+
+
+class ConfigurationException(WrapperException):
+    pass
+
+
+class InvalidUnisonTargetException(ConfigurationException):
     pass
 
 
@@ -29,7 +74,7 @@ class ConfigurationNotFoundException(ConfigurationException):
     pass
 
 
-class InvalidUnisonTargetException(ConfigurationException):
+class InsufficientFilePermissions(ConfigurationException):
     pass
 
 
@@ -48,22 +93,6 @@ SYNC_TARGET_PATH = os.path.sep + os.path.join('Volumes', '{USER}')
 # Extra arguments to pass to Unison
 UNISON_EXTRA_ARGS = [
     '-silent',
-]
-
-# Exit codes:
-# 0:     Script executed with no errors
-# 1 - 3: Unison exit codes
-# 11:    User not allowed to run sync
-# 12:    Sync target path does not exist
-# 13:    Invalid Unison target config
-# 14:    Could not find configuration file
-
-# Non-fatal exit codes from unison that the script should ignore
-IGNORED_EXIT_CODES = [
-    # 0   # successful synchronization; everything is up-to-date now.
-    # 1,  # some files were skipped, but all file transfers were successful.
-    # 2,  # non-fatal failures occurred during file transfer.
-    # 3   # a fatal error occurred, or the execution was interrupted.
 ]
 
 TEMPLATE_EXTENSION = 'prfconfig'
@@ -101,7 +130,7 @@ def get_current_user_stat():
         user_stat = (unicode(pwd.getpwuid(lstat.st_uid).pw_name), lstat.st_uid, lstat.st_gid)
 
     if user_stat[0] in ['', 'loginwindow', None, u'']:
-        raise DataCollectionException('Could not get currently running user, got: {name} ({uid})'.format(
+        raise UnknownRunningUserException('Could not determine running user, got: {name} ({uid})'.format(
             name=user_stat[0],
             uid=user_stat[1],
         ))
@@ -114,23 +143,23 @@ def unison_sync(user, target):
     if not valid_sync_target(target):
         raise InvalidUnisonTargetException('Not a valid sync target: {}'.format(target))
 
-    try:
-        config_path = create_user_config(username=user, target=target)
-        print('Created config: {path}'.format(path=config_path))
-    except IOError as e:
-        if e.errno == 2:
-            raise ConfigurationNotFoundException(
-                'Could not find configuration file for target {}: {}'.format(target, e.filename)
-            )
-        raise e
+    config_path = create_user_config(username=user, target=target)
 
+    config_extension = 'failed'
     try:
-        return subprocess.check_output([unison_cmd, target] + UNISON_EXTRA_ARGS, stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
+        output = subprocess.check_output([unison_cmd, target] + UNISON_EXTRA_ARGS, stderr=subprocess.STDOUT)
+        config_extension = 'done'
+        return output
+    except subprocess.CalledProcessError as call_error:
         raise UnisonSyncException(
-            message='Unison `{command}` returned error: \n{error}'.format(command=e.cmd, error=e.output),
-            exit_code=e.returncode,
+            message='Unison `{command}` returned error: \n{error}'.format(
+                command=call_error.cmd,
+                error=call_error.output
+            ),
+            exit_code=call_error.returncode,
         )
+    finally:
+        move_user_config(config_path=config_path, extension=config_extension)
 
 
 def valid_sync_target(target):
@@ -168,47 +197,72 @@ def create_user_config(username, target):
     if not os.path.exists(config_base_path):
         os.mkdir(config_base_path, 0755)
 
-    # Open target config file and write merged config to it, replace {USER} with actual username
-    with open(config_path, 'w') as user_config:
-        for file_path in [shared_template_path, target_template_path]:
-            with open(file_path, 'r') as template_config:
-                for config_line in template_config:
-                    if '{USER}' in config_line:
-                        config_line = config_line.format(USER=username)
-                    user_config.write(config_line)
+    try:
+        # First delete old files
+        remove_old_user_config(config_path=config_path)
+
+        # Open target config file and write merged config to it, replace {USER} with actual username
+        with open(config_path, 'w') as user_config:
+            for file_path in [shared_template_path, target_template_path]:
+                with open(file_path, 'r') as template_config:
+                    for config_line in template_config:
+                        if '{USER}' in config_line:
+                            config_line = config_line.format(USER=username)
+                        user_config.write(config_line)
+    except IOError as io_error:
+        if io_error.errno == 2:
+            raise ConfigurationNotFoundException(
+                'Could not find configuration file for target {}: {}'.format(target, io_error.filename)
+            )
+        elif io_error.errno == 13:
+            raise InsufficientFilePermissions(
+                'Not allowed to modify file for target {}: {}'.format(target, io_error.filename)
+            )
+        raise
 
     return config_path
+
+
+def move_user_config(config_path, extension):
+    # change extension on config file
+    new_config_path = config_path.replace(
+        '.{ext}'.format(ext=CONFIG_EXTENSION),
+        '.{new_ext}'.format(new_ext=extension),
+    )
+    shutil.move(config_path, new_config_path)
+    return new_config_path
+
+
+def remove_old_user_config(config_path):
+    base_path = os.path.split(config_path)
+    for key in os.listdir(base_path[0]):
+        if os.path.isfile(key) and key.endswith(os.path.extsep + CONFIG_EXTENSION):
+            os.remove(key)
 
 
 def main():
     user_name, user_id, user_gid = get_current_user_stat()
 
     if not valid_sync_user(uid=user_id, name=user_name):
-        print('Sync should not run for user: {user} ({id})'.format(user=user_name, id=user_id))
-        sys.exit(11)
+        raise UserSyncNotAllowedException(
+            'Sync should not run for user: {name} ({uid})'.format(name=user_name, uid=user_id)
+        )
 
     # This should preferably be done based on the actual target in the configs written.
     sync_target = SYNC_TARGET_PATH.format(USER=user_name)
     if not os.path.isdir(sync_target):
-        print('Target sync directory does not exist: {}'.format(sync_target))
-        sys.exit(12)
+        raise MissingSyncTargetException('Target sync directory does not exist: {}'.format(sync_target))
 
     for target in iter(TEMPLATE_CONFIG_TARGETS):
-        try:
-            print('Running sync for {}'.format(target))
-            unison_sync(user=user_name, target=target)
-        except UnisonException as e:
-            if e.exit_code not in IGNORED_EXIT_CODES:
-                print('Unison exited with error {code}, aborting sync:\n{msg}'.format(code=e.exit_code, msg=e.message))
-                sys.exit(e.exit_code)
-            pass
-        except InvalidUnisonTargetException:
-            print('Did not provide a valid Unison target config: {}'.format(target))
-            sys.exit(13)
-        except ConfigurationException as e:
-            print(e.message)
-            sys.exit(14)
+        print('Running sync for {}'.format(target))
+        unison_sync(user=user_name, target=target)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        if not hasattr(e, 'exit_code'):
+            e.exit_code = 99
+        print(e)
+        sys.exit(e.exit_code)
 
