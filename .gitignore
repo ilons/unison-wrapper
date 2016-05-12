@@ -2,3 +2,5 @@
 .idea
 .*env*
 *.pkg
+*.DS_Store
+*.iml
