@@ -145,12 +145,10 @@ def unison_sync(user, target):
 
     config_path = create_user_config(username=user, target=target)
 
-    config_extension = 'failed'
     try:
-        output = subprocess.check_output([unison_cmd, target] + UNISON_EXTRA_ARGS, stderr=subprocess.STDOUT)
-        config_extension = 'done'
-        return output
+        return subprocess.check_output([unison_cmd, target] + UNISON_EXTRA_ARGS, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as call_error:
+        move_user_config(config_path=config_path, extension='failed')
         raise UnisonSyncException(
             message='Unison `{command}` returned error: \n{error}'.format(
                 command=call_error.cmd,
@@ -158,8 +156,6 @@ def unison_sync(user, target):
             ),
             exit_code=call_error.returncode,
         )
-    finally:
-        move_user_config(config_path=config_path, extension=config_extension)
 
 
 def valid_sync_target(target):
@@ -206,6 +202,7 @@ def create_user_config(username, target):
             for file_path in [shared_template_path, target_template_path]:
                 with open(file_path, 'r') as template_config:
                     for config_line in template_config:
+                        # noinspection PyUnresolvedReferences
                         if '{USER}' in config_line:
                             config_line = config_line.format(USER=username)
                         user_config.write(config_line)
@@ -265,4 +262,3 @@ if __name__ == "__main__":
             e.exit_code = 99
         print(e)
         sys.exit(e.exit_code)
-
