@@ -116,18 +116,8 @@ PROHIBITED_SYNC_USERS = [
 
 
 def get_current_user_stat():
-    try:
-        # Try to use PyObjC's SystemConfiguration module if available
-        # noinspection PyUnresolvedReferences
-        import SystemConfiguration
-
-        # This module are able to get us the currently logged in console user, even when running as a hook
-        # To read up more on why this is a bad idea, have a look at the official documentation:
-        # https://developer.apple.com/library/mac/qa/qa1133/_index.html
-        user_stat = SystemConfiguration.SCDynamicStoreCopyConsoleUser(None, None, None) or (None, None, None)
-    except ImportError:
-        lstat = os.lstat("/dev/console")
-        user_stat = (unicode(pwd.getpwuid(lstat.st_uid).pw_name), lstat.st_uid, lstat.st_gid)
+    lstat = os.lstat("/dev/console")
+    user_stat = (unicode(pwd.getpwuid(lstat.st_uid).pw_name), lstat.st_uid, lstat.st_gid)
 
     if user_stat[0] in ['', 'loginwindow', None, u'']:
         raise UnknownRunningUserException('Could not determine running user, got: {name} ({uid})'.format(
