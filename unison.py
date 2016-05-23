@@ -1,7 +1,6 @@
 #!/usr/bin/python
 # coding=utf-8
 import sys
-import shutil
 import os
 import pwd
 import subprocess
@@ -133,12 +132,11 @@ def unison_sync(user, target):
     if not valid_sync_target(target):
         raise InvalidUnisonTargetException('Not a valid sync target: {}'.format(target))
 
-    config_path = create_user_config(username=user, target=target)
+    create_user_config(username=user, target=target)
 
     try:
         return subprocess.check_output([unison_cmd, target] + UNISON_EXTRA_ARGS, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as call_error:
-        move_user_config(config_path=config_path, extension='failed')
         raise UnisonSyncException(
             message='Unison `{command}` returned error: \n{error}'.format(
                 command=call_error.cmd,
@@ -208,16 +206,6 @@ def create_user_config(username, target):
         raise
 
     return config_path
-
-
-def move_user_config(config_path, extension):
-    # change extension on config file
-    new_config_path = config_path.replace(
-        '.{ext}'.format(ext=CONFIG_EXTENSION),
-        '.{new_ext}'.format(new_ext=extension),
-    )
-    shutil.move(config_path, new_config_path)
-    return new_config_path
 
 
 def remove_old_user_config(config_path):
